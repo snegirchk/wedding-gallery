@@ -257,7 +257,7 @@ footer .fs{font-size:.85rem;letter-spacing:.05em;}
     <div class="drop reveal" id="drop">
       <div class="big">Перетащите файлы сюда</div>
       <div class="hint">или</div>
-      <label class="pick">Выбрать файлы<input type="file" id="fileInput" accept="image/*,video/*" multiple hidden></label>
+      <label class="pick">Выбрать файлы<input type="file" id="fileInput" accept="image/*,video/*,.heic,.heif,.mov" multiple hidden></label>
     </div>
     <div class="name-field reveal">
       <label for="uploader">Ваше имя (по желанию — подпишем кадры)</label>
@@ -381,6 +381,38 @@ function xhrSend(method, url, body, onProgress) {
   });
 }
 
+/* ---------- HEIC → JPEG (айфоны снимают в HEIC, браузеры его не показывают) ---------- */
+let heicLibPromise = null;
+function loadHeicLib() {
+  if (!heicLibPromise) {
+    heicLibPromise = new Promise((resolve, reject) => {
+      const s = document.createElement("script");
+      s.src = "/vendor/heic2any.min.js";
+      s.onload = () => resolve(window.heic2any);
+      s.onerror = () => reject(new Error("heic lib"));
+      document.head.appendChild(s);
+    });
+  }
+  return heicLibPromise;
+}
+const isHeic = (file) =>
+  /image\/(heic|heif)/i.test(file.type || "") || /\.(heic|heif)$/i.test(file.name || "");
+
+async function normalizePhoto(file, ui) {
+  if (!isHeic(file)) return file;
+  try {
+    ui.status("конвертируем фото…");
+    const heic2any = await loadHeicLib();
+    const res = await heic2any({ blob: file, toType: "image/jpeg", quality: 0.9 });
+    const blob = Array.isArray(res) ? res[0] : res;
+    const name = (file.name || "photo").replace(/\.(heic|heif)$/i, "") + ".jpg";
+    return new File([blob], name, { type: "image/jpeg", lastModified: file.lastModified || Date.now() });
+  } catch (e) {
+    console.warn("HEIC convert failed", e);
+    return file; // зальём как есть — хотя бы скачать можно будет
+  }
+}
+
 /* ---------- thumbnails ---------- */
 async function makeImageThumb(file) {
   try {
@@ -429,6 +461,8 @@ async function uploadOne(file, ui) {
   const isVideo = (file.type || "").startsWith("video/");
   const kind = isVideo ? "video" : "photo";
 
+  if (!isVideo) file = await normalizePhoto(file, ui);
+
   ui.status("готовим превью…");
   const thumb = isVideo ? await makeVideoThumb(file) : await makeImageThumb(file);
   if (thumb) {
@@ -436,7 +470,7 @@ async function uploadOne(file, ui) {
     catch { /* превью необязательно */ }
   }
 
-  const ct = file.type || (isVideo ? "video/mp4" : "application/octet-stream");
+  const ct = file.type || (isVideo ? "video/mp4" : isHeic(file) ? "image/heic" : "image/jpeg");
   const uploader = uploaderInput.value.trim();
   const qs = new URLSearchParams({
     id, name: file.name, uploader, kind, ct, thumb: thumb ? "1" : "0",

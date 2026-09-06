@@ -1,0 +1,12 @@
+name = "wedding-gallery"
+pages_build_output_dir = "public"
+compatibility_date = "2024-11-01"
+
+# Хранилище файлов. bucket_name поменяйте на имя своего бакета в R2.
+[[r2_buckets]]
+binding = "BUCKET"
+bucket_name = "wedding-gallery"
+
+# ADMIN_SECRET здесь НЕ указываем.
+#  - локально: положите его в файл .dev.vars  (ADMIN_SECRET=...)
+#  - на проде: Pages → Settings → Variables and Secrets → добавить ADMIN_SECRET

@@ -1,0 +1,112 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="robots" content="noindex, nofollow">
+<title>Модерация · Ксения &amp; Константин</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:wght@400;600&family=EB+Garamond&family=Marck+Script&display=swap" rel="stylesheet">
+<style>
+:root{--navy:#1d3a52;--navy-deep:#15293a;--cream:#f3ecdd;--paper:#fff;--ink:#2a3742;--ink-soft:#5b6a76;--line:#c9bfa8;}
+*{margin:0;padding:0;box-sizing:border-box;}
+body{font-family:'EB Garamond',serif;background:var(--cream);color:var(--ink);padding:2rem 1.2rem;line-height:1.5;}
+h1{font-family:'Marck Script',cursive;color:var(--navy);font-size:2.2rem;text-align:center;margin-bottom:.3rem;}
+.sub{text-align:center;color:var(--ink-soft);margin-bottom:1.6rem;font-size:.95rem;}
+.gate{max-width:420px;margin:2rem auto;background:var(--paper);border:1px solid var(--line);padding:1.6rem;text-align:center;}
+.gate input{width:100%;padding:.7rem .9rem;border:1px solid var(--line);font-family:inherit;font-size:1rem;margin:.8rem 0;}
+button{font-family:'Cormorant Garamond',serif;text-transform:uppercase;letter-spacing:.14em;font-weight:600;
+  font-size:.8rem;padding:.6rem 1.4rem;background:var(--navy);color:#fff;border:none;cursor:pointer;}
+button.ghost{background:transparent;color:var(--navy);border:1px solid var(--navy);}
+button.danger{background:#a24141;}
+.stat{text-align:center;color:var(--ink-soft);margin-bottom:1.2rem;font-size:.9rem;}
+.grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(180px,1fr));gap:14px;max-width:1100px;margin:0 auto;}
+.card{background:var(--paper);border:1px solid var(--line);padding:.6rem;display:flex;flex-direction:column;gap:.5rem;}
+.card .ph{aspect-ratio:1/1;background:var(--cream);overflow:hidden;display:flex;align-items:center;justify-content:center;}
+.card .ph img{width:100%;height:100%;object-fit:cover;}
+.card .ph .ico{font-size:2rem;}
+.card .meta{font-size:.78rem;color:var(--ink-soft);word-break:break-word;}
+.card .meta b{color:var(--ink);font-weight:600;}
+.card a{color:var(--navy);}
+.msg{text-align:center;margin:1rem auto;max-width:600px;color:#a24141;}
+</style>
+</head>
+<body>
+<h1>Модерация</h1>
+<div class="sub">Ксения &amp; Константин · управление галереей</div>
+
+<div class="gate" id="gate">
+  <div>Введите секретное слово администратора</div>
+  <input type="password" id="secret" placeholder="секрет" autocomplete="off">
+  <button id="enter">Войти</button>
+  <div class="msg" id="gateMsg"></div>
+</div>
+
+<div id="app" style="display:none">
+  <div class="stat" id="stat"></div>
+  <div class="grid" id="grid"></div>
+</div>
+
+<script>
+const $ = (s) => document.querySelector(s);
+let SECRET = "";
+
+const fileUrl = (key, dl) => "/api/file/" + key.split("/").map(encodeURIComponent).join("/") + (dl ? "?dl=1" : "");
+const fmtSize = (n) => n < 1048576 ? (n/1024).toFixed(0)+" КБ" : n < 1073741824 ? (n/1048576).toFixed(1)+" МБ" : (n/1073741824).toFixed(2)+" ГБ";
+
+// секрет можно передать в хэше: admin.html#мой-секрет
+if (location.hash.length > 1) {
+  SECRET = decodeURIComponent(location.hash.slice(1));
+  tryEnter();
+}
+$("#enter").addEventListener("click", () => { SECRET = $("#secret").value; tryEnter(); });
+$("#secret").addEventListener("keydown", (e) => { if (e.key === "Enter") { SECRET = $("#secret").value; tryEnter(); } });
+
+async function tryEnter() {
+  if (!SECRET) return;
+  // проверяем секрет «мягким» запросом на удаление несуществующего ключа
+  const r = await fetch("/api/admin/delete", {
+    method: "POST",
+    headers: { "content-type": "application/json", "x-admin-secret": SECRET },
+    body: JSON.stringify({ key: "orig/__auth_check__" }),
+  });
+  if (r.status === 403) { $("#gateMsg").textContent = "Неверное слово"; return; }
+  $("#gate").style.display = "none";
+  $("#app").style.display = "block";
+  load();
+}
+
+async function load() {
+  const r = await fetch("/api/list", { cache: "no-store" });
+  const data = await r.json();
+  const files = data.files || [];
+  $("#stat").textContent = `${files.length} файлов · ${fmtSize(data.totalSize || 0)}`;
+  const grid = $("#grid");
+  grid.innerHTML = "";
+  for (const f of files) {
+    const card = document.createElement("div");
+    card.className = "card";
+    const thumb = f.thumbKey ? fileUrl(f.thumbKey) : (f.kind === "photo" ? fileUrl(f.key) : "");
+    card.innerHTML = `
+      <div class="ph">${thumb ? `<img loading="lazy" src="${thumb}">` : `<span class="ico">${f.kind === "video" ? "🎬" : "🖼"}</span>`}</div>
+      <div class="meta"><b>${esc(f.name)}</b><br>${esc(f.uploader || "без имени")} · ${fmtSize(f.size)}<br>
+        <a href="${fileUrl(f.key)}" target="_blank" rel="noopener">открыть</a></div>
+      <button class="danger">Удалить</button>`;
+    card.querySelector("button").addEventListener("click", async () => {
+      if (!confirm(`Удалить «${f.name}» навсегда?`)) return;
+      const res = await fetch("/api/admin/delete", {
+        method: "POST",
+        headers: { "content-type": "application/json", "x-admin-secret": SECRET },
+        body: JSON.stringify({ key: f.key }),
+      });
+      if (res.ok) { card.remove(); }
+      else alert("Не удалось удалить: HTTP " + res.status);
+    });
+    grid.appendChild(card);
+  }
+}
+function esc(s) { return String(s).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c])); }
+</script>
+</body>
+</html>

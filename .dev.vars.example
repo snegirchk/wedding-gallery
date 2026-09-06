@@ -1,0 +1,2 @@
+# Скопируйте в .dev.vars (без .example) для локального запуска.
+ADMIN_SECRET=change-me-locally

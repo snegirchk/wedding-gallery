@@ -1,0 +1,13 @@
+{
+  "name": "wedding-gallery",
+  "private": true,
+  "version": "1.0.0",
+  "description": "Открытое хранилище фото и видео со свадьбы (Cloudflare Pages + R2)",
+  "scripts": {
+    "dev": "wrangler pages dev",
+    "deploy": "wrangler pages deploy"
+  },
+  "devDependencies": {
+    "wrangler": "^3.90.0"
+  }
+}

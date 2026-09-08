@@ -691,13 +691,23 @@ function renderGallery() {
     const idx = allFiles.indexOf(f);
     const tile = document.createElement("div");
     tile.className = "tile";
-    const thumbSrc = f.thumbKey ? fileUrl(f.thumbKey) : (f.kind === "photo" ? fileUrl(f.key) : "");
+    const idFromKey = (f.key.slice(5).match(/^(\d{10,16}-[a-z0-9]{6,16})/i) || [])[1];
+    const thumbSrc =
+      f.thumbKey ? fileUrl(f.thumbKey)
+      : idFromKey ? fileUrl(`thumb/${idFromKey}.jpg`)
+      : f.kind === "photo" ? fileUrl(f.key)
+      : "";
     if (thumbSrc) {
       const img = document.createElement("img");
       img.loading = "lazy";
       img.src = thumbSrc;
       img.alt = f.name;
-      img.onerror = () => { img.remove(); tile.insertAdjacentHTML("afterbegin", noImg(f)); };
+      img.onerror = () => {
+        // превью нет — для фото пробуем оригинал, иначе плитка-заглушка
+        if (f.kind === "photo" && img.src.indexOf("/thumb/") !== -1) { img.src = fileUrl(f.key); return; }
+        img.remove();
+        tile.insertAdjacentHTML("afterbegin", noImg(f));
+      };
       tile.appendChild(img);
     } else {
       tile.insertAdjacentHTML("afterbegin", noImg(f));

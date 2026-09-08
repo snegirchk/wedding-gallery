@@ -28,6 +28,8 @@ export async function onRequestPost({ request, env }) {
   const hasThumb = url.searchParams.get("thumb") === "1";
   const kind = kindFromType(contentType);
   const key = `orig/${id}-${sanitizeName(originalName)}`;
+  const atParam = url.searchParams.get("at") || "";
+  const uploadedAt = /^\d{4}-\d\d-\d\dT[\d:.]+Z$/.test(atParam) ? atParam : new Date().toISOString();
 
   await env.BUCKET.put(key, request.body, {
     httpMetadata: { contentType, cacheControl: "public, max-age=86400" },
@@ -36,7 +38,7 @@ export async function onRequestPost({ request, env }) {
       originalName,
       uploader,
       kind,
-      uploadedAt: new Date().toISOString(),
+      uploadedAt,
       thumbKey: hasThumb ? `thumb/${id}.jpg` : "",
     },
   });

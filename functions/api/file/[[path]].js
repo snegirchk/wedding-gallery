@@ -34,7 +34,10 @@ export async function onRequestGet({ request, env }) {
     );
   }
   if (url.searchParams.get("dl")) {
-    const name = object.customMetadata?.originalName || key.split("/").pop();
+    let name = object.customMetadata?.originalName || key.split("/").pop();
+    // файл пересохранён в JPEG, но имя осталось .heic — отдаём с корректным расширением
+    const ct = object.httpMetadata?.contentType || "";
+    if (ct === "image/jpeg" && /\.(heic|heif)$/i.test(name)) name = name.replace(/\.(heic|heif)$/i, ".jpg");
     headers.set("content-disposition", `attachment; filename*=UTF-8''${encodeURIComponent(name)}`);
   }
 

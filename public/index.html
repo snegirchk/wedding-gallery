@@ -411,14 +411,21 @@ function xhrSend(method, url, body, onProgress) {
 }
 
 /* ---------- HEIC → JPEG (айфоны снимают в HEIC, браузеры его не показывают) ---------- */
+/* Используем актуальный libheif-js — он декодирует современный формат iPhone,
+   в отличие от старых библиотек. */
 let heicLibPromise = null;
 function loadHeicLib() {
   if (!heicLibPromise) {
     heicLibPromise = new Promise((resolve, reject) => {
       const s = document.createElement("script");
-      s.src = "/vendor/heic2any.min.js";
-      s.onload = () => resolve(window.heic2any);
-      s.onerror = () => reject(new Error("heic lib"));
+      s.src = "/vendor/libheif-bundle.js";
+      s.onload = () => {
+        try {
+          const lib = typeof window.libheif === "function" ? window.libheif() : window.libheif;
+          resolve(lib);
+        } catch (e) { reject(e); }
+      };
+      s.onerror = () => reject(new Error("heic lib load"));
       document.head.appendChild(s);
     });
   }
@@ -427,13 +434,39 @@ function loadHeicLib() {
 const isHeic = (file) =>
   /image\/(heic|heif)/i.test(file.type || "") || /\.(heic|heif)$/i.test(file.name || "");
 
+async function heicToJpeg(file, lib, quality) {
+  const decoder = new lib.HeifDecoder();
+  const images = decoder.decode(new Uint8Array(await file.arrayBuffer()));
+  if (!images || !images.length) throw new Error("HEIF: no image");
+  const image = images[0];
+  const w = image.get_width();
+  const h = image.get_height();
+  const canvas = document.createElement("canvas");
+  canvas.width = w; canvas.height = h;
+  const ctx = canvas.getContext("2d");
+  const imageData = ctx.createImageData(w, h);
+  await new Promise((resolve, reject) => {
+    image.display(imageData, (out) => (out ? resolve(out) : reject(new Error("HEIF display"))));
+  });
+  ctx.putImageData(imageData, 0, 0);
+  try { image.free && image.free(); } catch {}
+  const scale = Math.min(1, 2600 / Math.max(w, h));
+  if (scale < 1) {
+    const c2 = document.createElement("canvas");
+    c2.width = Math.round(w * scale); c2.height = Math.round(h * scale);
+    c2.getContext("2d").drawImage(canvas, 0, 0, c2.width, c2.height);
+    return await new Promise((r) => c2.toBlob(r, "image/jpeg", quality));
+  }
+  return await new Promise((r) => canvas.toBlob(r, "image/jpeg", quality));
+}
+
 async function normalizePhoto(file, ui) {
   if (!isHeic(file)) return file;
   try {
     ui.status("конвертируем фото…");
-    const heic2any = await loadHeicLib();
-    const res = await heic2any({ blob: file, toType: "image/jpeg", quality: 0.9 });
-    const blob = Array.isArray(res) ? res[0] : res;
+    const lib = await loadHeicLib();
+    const blob = await heicToJpeg(file, lib, 0.86);
+    if (!blob || blob.size < 1024) throw new Error("empty jpeg");
     const name = (file.name || "photo").replace(/\.(heic|heif)$/i, "") + ".jpg";
     return new File([blob], name, { type: "image/jpeg", lastModified: file.lastModified || Date.now() });
   } catch (e) {

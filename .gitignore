@@ -5,3 +5,4 @@ node_modules/
 .tools/
 .tmp/
 .tools/dl.log
+server/node_modules/

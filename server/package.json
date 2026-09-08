@@ -1,0 +1,13 @@
+{
+  "name": "wedding-gallery-server",
+  "private": true,
+  "version": "1.0.0",
+  "description": "Свадебная галерея — сервер для российского хостинга (Express + диск)",
+  "type": "commonjs",
+  "main": "app.js",
+  "scripts": { "start": "node app.js" },
+  "dependencies": {
+    "archiver": "^7.0.1",
+    "express": "^4.21.2"
+  }
+}

@@ -1,0 +1,24 @@
+[Unit]
+Description=Wedding gallery (Express + disk storage)
+After=network.target
+
+[Service]
+Type=simple
+User=wedding
+Group=wedding
+WorkingDirectory=/opt/wedding-gallery/server
+EnvironmentFile=/etc/wedding-gallery.env
+Environment=WG_DATA=/var/wedding/files
+Environment=WG_PUBLIC=/opt/wedding-gallery/public
+Environment=WG_PORT=3000
+Environment=NODE_ENV=production
+ExecStart=/usr/bin/node app.js
+Restart=always
+RestartSec=2
+LimitNOFILE=65536
+NoNewPrivileges=true
+ProtectSystem=full
+ReadWritePaths=/var/wedding
+
+[Install]
+WantedBy=multi-user.target

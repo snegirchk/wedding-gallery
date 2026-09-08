@@ -7,6 +7,8 @@
 <title>Ксения &amp; Константин · фото и видео со свадьбы</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="preload" as="image" href="/img/hero.jpg" media="(min-width:701px)">
+<link rel="preload" as="image" href="/img/hero-sm.jpg" media="(max-width:700px)">
 <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,300;0,400;0,500;0,600;1,300;1,400;1,500&family=EB+Garamond:ital,wght@0,400;0,500;1,400&family=Marck+Script&display=swap" rel="stylesheet">
 <style>
 :root{
@@ -28,56 +30,70 @@ img{display:block;max-width:100%;}
 /* nav */
 nav{
   position:fixed;top:0;left:0;right:0;z-index:100;
-  display:flex;justify-content:center;gap:2.4rem;padding:1rem 1rem;
-  background:rgba(252,249,242,.72);backdrop-filter:blur(10px);
-  border-bottom:1px solid rgba(29,58,82,.09);
+  display:flex;justify-content:center;gap:2.4rem;padding:1.1rem 1rem;
+  background:linear-gradient(rgba(19,35,48,.4), rgba(19,35,48,0));
+  border-bottom:1px solid transparent;transition:background .3s, padding .3s, border-color .3s;
+}
+nav.solid{
+  background:rgba(252,249,242,.82);backdrop-filter:blur(10px);
+  border-bottom-color:rgba(29,58,82,.1);padding:.85rem 1rem;
 }
 nav a{
   font-family:'Cormorant Garamond',serif;text-transform:uppercase;letter-spacing:.2em;
-  font-size:.76rem;font-weight:600;color:var(--navy);text-decoration:none;
+  font-size:.76rem;font-weight:600;color:rgba(255,255,255,.92);text-decoration:none;
   transition:color .25s;cursor:pointer;position:relative;padding-bottom:2px;
+  text-shadow:0 1px 8px rgba(10,18,26,.4);
 }
+nav.solid a{color:var(--navy);text-shadow:none;}
 nav a::after{content:"";position:absolute;left:0;right:100%;bottom:0;height:1px;background:var(--gold);transition:right .28s ease;}
-nav a:hover{color:var(--gold-deep);}
+nav a:hover{color:#e7c89f;}
+nav.solid a:hover{color:var(--gold-deep);}
 nav a:hover::after{right:0;}
 
 /* hero */
 .hero{
-  position:relative;min-height:92vh;display:flex;align-items:center;justify-content:center;
+  position:relative;min-height:94vh;display:flex;align-items:center;justify-content:center;
   text-align:center;overflow:hidden;padding:7rem 1.5rem 4rem;
-  background:
-    radial-gradient(120% 80% at 50% 0%, rgba(255,255,255,.5), transparent 60%),
-    linear-gradient(180deg, var(--cream) 0%, var(--paper) 45%, var(--water) 130%);
+  background:var(--navy-deep);
 }
-.hero::after{ /* тонкая зернистость */
-  content:"";position:absolute;inset:0;pointer-events:none;opacity:.5;mix-blend-mode:multiply;
-  background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='140' height='140'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.9' numOctaves='2'/%3E%3CfeColorMatrix type='saturate' values='0'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='.045'/%3E%3C/svg%3E");
+.hero::before{ /* фотография-фон */
+  content:"";position:absolute;inset:-3%;z-index:0;
+  background:url("/img/hero.jpg") center 42%/cover no-repeat;
+  filter:blur(2px) saturate(1.05);transform:scale(1.05);
+}
+.hero::after{ /* вуаль поверх фото — чтобы текст читался */
+  content:"";position:absolute;inset:0;z-index:1;pointer-events:none;
+  background:
+    radial-gradient(120% 90% at 50% 45%, rgba(19,35,48,.32), rgba(19,35,48,.62) 100%),
+    linear-gradient(180deg, rgba(19,35,48,.5) 0%, rgba(19,35,48,.28) 30%, rgba(19,35,48,.6) 100%);
 }
 .hero-frame{
-  position:relative;z-index:2;padding:clamp(2rem,6vw,4rem) clamp(1.4rem,6vw,4.5rem);
-  border:1px solid rgba(29,58,82,.28);
+  position:relative;z-index:2;padding:clamp(2.2rem,6vw,4rem) clamp(1.4rem,6vw,4.5rem);
+  border:1px solid rgba(255,255,255,.42);
 }
 .hero-frame::before,.hero-frame::after{
-  content:"";position:absolute;width:12px;height:12px;border:1px solid var(--gold);
+  content:"";position:absolute;width:13px;height:13px;border:1px solid var(--gold);
 }
 .hero-frame::before{top:-6px;left:-6px;border-width:1px 0 0 1px;}
 .hero-frame::after{bottom:-6px;right:-6px;border-width:0 1px 1px 0;}
-.hero .kicker{margin-bottom:1.5rem;}
+.hero .kicker{margin-bottom:1.5rem;color:#e7c89f;}
 .hero-names{
   font-family:'Cormorant Garamond',serif;font-weight:300;
-  letter-spacing:.02em;font-size:clamp(2.1rem,6vw,4.4rem);color:var(--navy-deep);
-  line-height:1.06;
+  letter-spacing:.02em;font-size:clamp(2.1rem,6vw,4.4rem);color:#fbf6ec;
+  line-height:1.06;text-shadow:0 2px 24px rgba(10,18,26,.55);
 }
-.hero-names .amp{font-style:italic;color:var(--gold-deep);margin:0 .14em;font-weight:400;}
+.hero-names .amp{font-style:italic;color:#e7c89f;margin:0 .14em;font-weight:400;}
 .hero-sub{
   font-family:'Cormorant Garamond',serif;font-style:italic;font-weight:400;
-  font-size:clamp(1.15rem,3vw,1.7rem);color:var(--navy-soft);margin-top:.9rem;
+  font-size:clamp(1.15rem,3vw,1.7rem);color:rgba(255,255,255,.9);margin-top:.9rem;
+  text-shadow:0 1px 14px rgba(10,18,26,.5);
 }
 .hero-rule{display:flex;align-items:center;justify-content:center;gap:.8rem;margin:1.8rem 0 1.3rem;}
-.hero-rule span{height:1px;width:46px;background:var(--line);}
+.hero-rule span{height:1px;width:46px;background:rgba(255,255,255,.5);}
 .hero-rule i{width:5px;height:5px;transform:rotate(45deg);background:var(--gold);}
-.hero-tag{font-style:italic;font-size:clamp(1rem,2.5vw,1.2rem);color:var(--ink-soft);max-width:32ch;margin:0 auto;}
-.hero-date{margin-top:1.4rem;font-size:.72rem;letter-spacing:.28em;text-transform:uppercase;color:var(--navy-soft);}
+.hero-tag{font-style:italic;font-size:clamp(1rem,2.5vw,1.2rem);color:rgba(255,255,255,.82);max-width:32ch;margin:0 auto;text-shadow:0 1px 12px rgba(10,18,26,.5);}
+.hero-date{margin-top:1.4rem;font-size:.72rem;letter-spacing:.28em;text-transform:uppercase;color:rgba(255,255,255,.68);}
+@media(max-width:700px){ .hero::before{background-image:url("/img/hero-sm.jpg");} }
 
 /* toolbar (счётчик + скачать всё) */
 .toolbar{
@@ -326,6 +342,12 @@ const io = new IntersectionObserver((es) => es.forEach((e) => {
 document.querySelectorAll(".reveal").forEach((el) => io.observe(el));
 // подстраховка: если observer почему-то не сработал — показываем всё через 1.5 с
 setTimeout(() => document.querySelectorAll(".reveal:not(.in)").forEach((el) => el.classList.add("in")), 1500);
+
+/* nav: прозрачная над фото, плотная при прокрутке */
+const navEl = document.querySelector("nav");
+const onScroll = () => navEl.classList.toggle("solid", window.scrollY > 80);
+onScroll();
+window.addEventListener("scroll", onScroll, { passive: true });
 
 /* smooth scroll for nav */
 document.querySelectorAll("[data-scroll]").forEach((a) => {

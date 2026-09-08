@@ -255,7 +255,7 @@ footer .sign{font-family:'Cormorant Garamond',serif;font-style:italic;font-size:
 <nav>
   <a data-scroll="#upload">Загрузить</a>
   <a data-scroll="#gallery">Галерея</a>
-  <a href="/api/zip">Скачать всё</a>
+  <a id="navDl" href="#gallery">Скачать всё</a>
 </nav>
 
 <header class="hero">
@@ -272,7 +272,7 @@ footer .sign{font-family:'Cormorant Garamond',serif;font-style:italic;font-size:
 <section class="toolbar">
   <div class="t-title">Общий альбом</div>
   <div class="stat" id="stat">загрузка…</div>
-  <a class="btn-dl" id="dlAll" href="/api/zip">↓ Скачать всё архивом</a>
+  <button class="btn-dl" id="dlAll" type="button">↓ Скачать все фото архивом</button>
 </section>
 
 <section class="sec upload" id="upload">
@@ -287,11 +287,18 @@ footer .sign{font-family:'Cormorant Garamond',serif;font-style:italic;font-size:
       <div class="big">Перетащите файлы сюда</div>
       <div class="hint">или</div>
       <label class="pick">Выбрать файлы<input type="file" id="fileInput" accept="image/*,video/*,.heic,.heif,.mov" multiple hidden></label>
-      <div class="hint" style="margin:1.3rem 0 0">Большое видео грузится несколько минут — не закрывайте вкладку, пока идёт полоса.</div>
+      <div class="hint" style="margin:1.3rem 0 0">Фото — без ограничений. Видео до&nbsp;20&nbsp;МБ (примерно 20&nbsp;секунд). Длинное видео добавьте ссылкой&nbsp;↓</div>
     </div>
     <div class="name-field reveal">
       <label for="uploader">Ваше имя (по желанию — подпишем кадры)</label>
       <input type="text" id="uploader" placeholder="Например: Аня и Миша" maxlength="80">
+    </div>
+    <div class="name-field reveal">
+      <label for="linkInput">Длинное видео — ссылкой (Яндекс.Диск, Google Drive, VK)</label>
+      <div style="display:flex;gap:.5rem;flex-wrap:wrap">
+        <input type="url" id="linkInput" placeholder="https://disk.yandex.ru/i/…" style="flex:1;min-width:200px">
+        <button type="button" id="linkAdd" class="pick" style="border:none">Добавить</button>
+      </div>
     </div>
     <div class="queue" id="queue"></div>
   </div>
@@ -327,11 +334,18 @@ footer .sign{font-family:'Cormorant Garamond',serif;font-style:italic;font-size:
 
 <div class="toast" id="toast"></div>
 
+<script src="/vendor/jszip.min.js"></script>
 <script>
 const $ = (s) => document.querySelector(s);
-const SINGLE_MAX = 25 * 1024 * 1024;      // до 25 МБ — одним запросом
-const PART_SIZE  = 64 * 1024 * 1024;      // крупнее — частями по 64 МБ (с автоповтором)
 const PAGE = 60;
+const VIDEO_MAX = 20 * 1024 * 1024;   // видео крупнее — только ссылкой
+
+/* Хранилище — репозиторий на GitHub (работает в РФ, как пригласительное).
+   Токен подставляется при сборке из секрета MEDIA_TOKEN. */
+const GH = { owner: "snegirchk", repo: "wedding-media", token: "%%MEDIA_TOKEN%%" };
+const hasToken = () => /^(github_pat_|ghp_|gho_)/.test(GH.token);
+// на этапе настройки токен можно задать локально: localStorage.wg_token = "github_pat_..."
+if (!hasToken()) { try { const t = localStorage.getItem("wg_token"); if (t) GH.token = t; } catch {} }
 
 /* reveal */
 const io = new IntersectionObserver((es) => es.forEach((e) => {
@@ -388,24 +402,81 @@ const fmtTime = (s) => {
   return `~${Math.floor(m / 60)} ч ${m % 60} мин`;
 };
 const genId = () => Date.now() + "-" + Math.random().toString(16).slice(2, 10);
-const fileUrl = (key, dl) =>
-  "/api/file/" + key.split("/").map(encodeURIComponent).join("/") + (dl ? "?dl=1" : "");
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+const escapeHtml = (s) => String(s).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+function plural(n, one, few, many) {
+  const m10 = n % 10, m100 = n % 100;
+  if (m10 === 1 && m100 !== 11) return one;
+  if (m10 >= 2 && m10 <= 4 && (m100 < 10 || m100 >= 20)) return few;
+  return many;
+}
+const b64u = (s) => btoa(unescape(encodeURIComponent(s))).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+function unb64u(s) {
+  try { return decodeURIComponent(escape(atob(String(s).replace(/-/g, "+").replace(/_/g, "/")))); }
+  catch { return ""; }
+}
+const blobToBase64 = (blob) => new Promise((res, rej) => {
+  const fr = new FileReader();
+  fr.onload = () => res(String(fr.result).split(",")[1] || "");
+  fr.onerror = rej;
+  fr.readAsDataURL(blob);
+});
+const encPath = (p) => p.split("/").map(encodeURIComponent).join("/");
 
-function xhrSend(method, url, body, onProgress) {
+/* ---------- GitHub API ---------- */
+const API = `https://api.github.com/repos/${GH.owner}/${GH.repo}`;
+function ghHeaders(extra) {
+  const h = { "Accept": "application/vnd.github+json", "X-GitHub-Api-Version": "2022-11-28", ...(extra || {}) };
+  if (hasToken()) h["Authorization"] = "Bearer " + GH.token;
+  return h;
+}
+async function ghGet(url) {
+  const r = await fetch(url, { headers: ghHeaders(), cache: "no-store" });
+  if (!r.ok) { const e = new Error("GET " + r.status); e.status = r.status; throw e; }
+  return r.json();
+}
+function xhrJSON(method, url, body, onProgress) {
   return new Promise((resolve, reject) => {
     const xhr = new XMLHttpRequest();
     xhr.open(method, url);
+    for (const [k, v] of Object.entries(ghHeaders({ "Content-Type": "application/json" }))) xhr.setRequestHeader(k, v);
     if (onProgress && xhr.upload) {
       xhr.upload.onprogress = (e) => { if (e.lengthComputable) onProgress(e.loaded / e.total, e.loaded, e.total); };
     }
     xhr.onload = () => {
-      if (xhr.status >= 200 && xhr.status < 300) {
-        try { resolve(JSON.parse(xhr.responseText || "{}")); } catch { resolve({}); }
-      } else reject(new Error("HTTP " + xhr.status + " " + xhr.responseText));
+      let data = {};
+      try { data = JSON.parse(xhr.responseText || "{}"); } catch {}
+      if (xhr.status >= 200 && xhr.status < 300) resolve(data);
+      else { const e = new Error("HTTP " + xhr.status + " " + (data.message || "")); e.status = xhr.status; e.data = data; reject(e); }
     };
-    xhr.onerror = () => reject(new Error("network"));
+    xhr.onerror = () => { const e = new Error("network"); e.status = 0; reject(e); };
     xhr.send(body);
   });
+}
+// создать/обновить файл; повтор при гонке коммитов и временных ошибках
+async function ghPut(path, blob, message, onProgress) {
+  const content = await blobToBase64(blob);
+  for (let attempt = 1; ; attempt++) {
+    try {
+      let sha;
+      try { sha = (await ghGet(`${API}/contents/${encPath(path)}?ref=main`)).sha; } catch {}
+      const body = JSON.stringify({ message, content, branch: "main", ...(sha ? { sha } : {}) });
+      return await xhrJSON("PUT", `${API}/contents/${encPath(path)}`, body, onProgress);
+    } catch (e) {
+      if (e.status === 403 && /rate limit/i.test(e.data?.message || "")) {
+        throw new Error("Слишком много загрузок сразу — подождите минуту и попробуйте ещё раз");
+      }
+      if ([409, 422, 500, 502, 503, 0].includes(e.status) && attempt < 6) {
+        await sleep(attempt * 1500 + Math.random() * 1200);
+        continue;
+      }
+      throw e;
+    }
+  }
+}
+async function ghDelete(path, sha, message) {
+  return xhrJSON("DELETE", `${API}/contents/${encPath(path)}`,
+    JSON.stringify({ message, sha, branch: "main" }));
 }
 
 /* ---------- HEIC → JPEG (айфоны снимают в HEIC, браузеры его не показывают) ---------- */
@@ -516,93 +587,67 @@ function makeVideoThumb(file) {
 }
 
 /* ---------- upload ---------- */
+function splitName(name, isVideo) {
+  const dot = String(name || "").lastIndexOf(".");
+  const base = dot > 0 ? name.slice(0, dot) : (name || (isVideo ? "video" : "photo"));
+  let ext = (dot > 0 ? name.slice(dot + 1) : (isVideo ? "mp4" : "jpg")).toLowerCase().replace(/[^a-z0-9]/g, "");
+  if (!ext) ext = isVideo ? "mp4" : "jpg";
+  return { base: base.slice(0, 120), ext };
+}
+
 async function uploadOne(file, ui) {
+  if (!hasToken()) throw new Error("Загрузка ещё не настроена (нет токена)");
   const id = genId();
-  const isVideo = (file.type || "").startsWith("video/");
-  const kind = isVideo ? "video" : "photo";
+  const isVideo = (file.type || "").startsWith("video/") || /\.(mov|mp4|m4v|webm|avi)$/i.test(file.name || "");
+
+  if (isVideo && file.size > VIDEO_MAX) {
+    throw new Error(`видео ${fmtSize(file.size)} — больше 20 МБ. Загрузите его на Яндекс.Диск и добавьте ссылкой ниже`);
+  }
 
   if (!isVideo) file = await normalizePhoto(file, ui);
 
   ui.status("готовим превью…");
   const thumb = isVideo ? await makeVideoThumb(file) : await makeImageThumb(file);
-  if (thumb) {
-    try { await xhrSend("POST", `/api/upload?type=thumb&id=${id}`, thumb); }
-    catch { /* превью необязательно */ }
-  }
 
-  const ct = file.type || (isVideo ? "video/mp4" : isHeic(file) ? "image/heic" : "image/jpeg");
   const uploader = uploaderInput.value.trim();
-  const qs = new URLSearchParams({
-    id, name: file.name, uploader, kind, ct, thumb: thumb ? "1" : "0",
-  }).toString();
+  const kind = isVideo ? "video" : "photo";
+  const { base, ext } = splitName(file.name, isVideo);
+  const mediaPath = `m/${id}~${kind}~${b64u(uploader)}~${b64u(base)}.${ext}`;
 
-  const big = file.size > SINGLE_MAX;
-  ui.status(big ? "загрузка большого файла — не закрывайте вкладку…" : "загрузка…");
-
-  if (!big) {
-    const t0 = Date.now();
-    await xhrSend("POST", `/api/upload?${qs}`, file, (f, loaded) => {
-      const el = (Date.now() - t0) / 1000;
-      const sp = el > 0.5 ? loaded / el : 0;
-      ui.progress(f, sp, sp > 0 ? (file.size - loaded) / sp : 0);
-    });
-    return;
+  if (thumb) {
+    ui.status("загрузка превью…");
+    try { await ghPut(`t/${id}.jpg`, thumb, `thumb ${id}`); } catch (e) { console.warn("thumb failed", e); }
   }
 
-  // multipart: несколько частей параллельно, с автоповтором упавших
-  const created = await xhrSend("POST", `/api/mpu?action=create&${qs}`, null);
-  const { key, uploadId } = created;
-  const total = Math.ceil(file.size / PART_SIZE);
-  const loaded = new Array(total).fill(0);
-  const parts = new Array(total);
+  ui.status("загрузка…");
   const t0 = Date.now();
-  const report = () => {
-    const done = loaded.reduce((a, b) => a + b, 0);
+  await ghPut(mediaPath, file, `add ${id}`, (f, loaded) => {
     const el = (Date.now() - t0) / 1000;
-    const sp = el > 1 ? done / el : 0;
-    ui.progress(done / file.size, sp, sp > 0 ? (file.size - done) / sp : 0);
-  };
-  const ticker = setInterval(report, 500);
+    const sp = el > 0.6 ? loaded / el : 0;
+    ui.progress(f, sp, sp > 0 ? (file.size - loaded) / sp : 0);
+  });
+}
 
-  let cursor = 0;
-  const worker = async () => {
-    while (cursor < total) {
-      const i = cursor++;
-      const chunk = file.slice(i * PART_SIZE, Math.min(file.size, (i + 1) * PART_SIZE));
-      for (let attempt = 1; ; attempt++) {
-        try {
-          const r = await xhrSend(
-            "PUT",
-            `/api/mpu?action=part&key=${encodeURIComponent(key)}&uploadId=${encodeURIComponent(uploadId)}&part=${i + 1}`,
-            chunk,
-            (f) => { loaded[i] = f * chunk.size; }
-          );
-          loaded[i] = chunk.size;
-          parts[i] = { partNumber: r.partNumber, etag: r.etag };
-          break;
-        } catch (e) {
-          if (attempt >= 4) throw e;
-          loaded[i] = 0;
-          await new Promise((res) => setTimeout(res, attempt * 2000));
-        }
-      }
-    }
-  };
-
+async function addLink() {
+  const raw = $("#linkInput").value.trim();
+  if (!/^https?:\/\/.+/i.test(raw)) { toast("Вставьте ссылку целиком (с https://)"); return; }
+  const uploader = uploaderInput.value.trim();
+  const id = genId();
+  const btn = $("#linkAdd");
+  btn.disabled = true; btn.textContent = "…";
   try {
-    await Promise.all(Array.from({ length: Math.min(3, total) }, worker));
-    clearInterval(ticker);
-    report();
-    ui.status("завершаем…");
-    await xhrSend("POST", "/api/mpu?action=complete",
-      new Blob([JSON.stringify({ key, uploadId, parts })], { type: "application/json" }));
-  } catch (err) {
-    clearInterval(ticker);
-    xhrSend("POST", "/api/mpu?action=abort",
-      new Blob([JSON.stringify({ key, uploadId })], { type: "application/json" })).catch(() => {});
-    throw err;
+    await ghPut(`l/${id}~${b64u(uploader)}~${b64u(raw)}.txt`,
+      new Blob([raw], { type: "text/plain" }), `link ${id}`);
+    $("#linkInput").value = "";
+    toast("Видео добавлено ссылкой");
+    loadGallery();
+  } catch (e) {
+    toast("Не получилось: " + (e.message || "ошибка"));
+  } finally {
+    btn.disabled = false; btn.textContent = "Добавить";
   }
 }
+$("#linkAdd").addEventListener("click", addLink);
 
 function addQueueItem(file) {
   const el = document.createElement("div");
@@ -641,11 +686,11 @@ async function handleFiles(fileList) {
       okCount++;
     } catch (err) {
       console.error(err);
-      ui.err("не загрузилось — попробуйте ещё раз");
+      ui.err(err && err.message ? err.message : "не загрузилось — попробуйте ещё раз");
     }
   }
   busy = false;
-  if (okCount) { toast(`Добавлено файлов: ${okCount}`); loadGallery(true); }
+  if (okCount) { toast(`Добавлено: ${okCount}`); loadGallery(); }
 }
 
 $("#fileInput").addEventListener("change", (e) => { handleFiles(e.target.files); e.target.value = ""; });
@@ -655,102 +700,128 @@ const drop = $("#drop");
 drop.addEventListener("drop", (e) => { if (e.dataTransfer?.files?.length) handleFiles(e.dataTransfer.files); });
 
 /* ---------- gallery ---------- */
-let allFiles = [];
+let allItems = [];
 let shown = 0;
 
-async function loadGallery(reset) {
+const jsd = (sha, p) => `https://cdn.jsdelivr.net/gh/${GH.owner}/${GH.repo}@${sha}/${encPath(p)}`;
+const raw = (sha, p) => `https://raw.githubusercontent.com/${GH.owner}/${GH.repo}/${sha}/${encPath(p)}`;
+
+async function loadGallery() {
   try {
-    const r = await fetch("/api/list", { cache: "no-store" });
-    const data = await r.json();
-    allFiles = data.files || [];
-    $("#stat").textContent =
-      allFiles.length
-        ? `${allFiles.length} ${plural(allFiles.length, "файл", "файла", "файлов")} · ${fmtSize(data.totalSize || 0)}`
-        : "пока ни одного файла";
-    $("#dlAll").toggleAttribute("disabled", allFiles.length === 0);
-    if (reset) shown = 0;
+    const br = await ghGet(`${API}/branches/main`);
+    const sha = br.commit.sha;
+    const tree = await ghGet(`${API}/git/trees/${sha}?recursive=1`);
+    const blobs = (tree.tree || []).filter((x) => x.type === "blob");
+    const thumbs = new Map();
+    const items = [];
+    for (const b of blobs) {
+      let m;
+      if ((m = b.path.match(/^t\/([^/]+)\.jpg$/))) { thumbs.set(m[1], b); continue; }
+      if ((m = b.path.match(/^m\/([^~/]+)~([a-z]+)~([^~]*)~(.+)\.([a-z0-9]+)$/i))) {
+        items.push({ id: m[1], kind: m[2] === "video" ? "video" : "photo",
+          uploader: unb64u(m[3]), name: unb64u(m[4]) + "." + m[5],
+          mediaPath: b.path, mediaSha: b.sha, external: false });
+      } else if ((m = b.path.match(/^l\/([^~/]+)~([^~]*)~(.+)\.txt$/))) {
+        const url = unb64u(m[3]);
+        let host = ""; try { host = new URL(url).hostname.replace(/^www\./, ""); } catch {}
+        items.push({ id: m[1], kind: "link", uploader: unb64u(m[2]),
+          name: host || "видео по ссылке", url, mediaPath: b.path, mediaSha: b.sha, external: true });
+      }
+    }
+    for (const it of items) {
+      const t = thumbs.get(it.id);
+      it.thumbPath = t ? t.path : "";
+      it.thumbSha = t ? t.sha : "";
+      it.thumbUrl = t ? jsd(sha, t.path) : "";
+      it.thumbRaw = t ? raw(sha, t.path) : "";
+      it.mediaUrl = it.external ? it.url : jsd(sha, it.mediaPath);
+      it.mediaRaw = it.external ? it.url : raw(sha, it.mediaPath);
+    }
+    items.sort((a, b) => (a.id < b.id ? 1 : a.id > b.id ? -1 : 0));
+    allItems = items;
+    $("#stat").textContent = items.length
+      ? `${items.length} ${plural(items.length, "кадр", "кадра", "кадров")} в альбоме`
+      : "пока ни одного кадра";
+    $("#dlAll").disabled = !items.some((i) => !i.external);
+    shown = 0;
     renderGallery();
-  } catch {
-    $("#stat").textContent = "не удалось получить список";
+  } catch (e) {
+    console.error(e);
+    $("#stat").textContent = e.status === 403
+      ? "слишком много запросов — обновите страницу через минуту"
+      : "не удалось загрузить галерею";
   }
 }
-function plural(n, one, few, many) {
-  const m10 = n % 10, m100 = n % 100;
-  if (m10 === 1 && m100 !== 11) return one;
-  if (m10 >= 2 && m10 <= 4 && (m100 < 10 || m100 >= 20)) return few;
-  return many;
-}
+
 function renderGallery() {
   const grid = $("#grid");
-  $("#galEmpty").style.display = allFiles.length ? "none" : "block";
+  $("#galEmpty").style.display = allItems.length ? "none" : "block";
   if (shown === 0) grid.innerHTML = "";
-  const next = allFiles.slice(shown, shown + PAGE);
-  for (const f of next) {
-    const idx = allFiles.indexOf(f);
+  for (const it of allItems.slice(shown, shown + PAGE)) {
+    const idx = allItems.indexOf(it);
     const tile = document.createElement("div");
     tile.className = "tile";
-    const idFromKey = (f.key.slice(5).match(/^(\d{10,16}-[a-z0-9]{6,16})/i) || [])[1];
-    const thumbSrc =
-      f.thumbKey ? fileUrl(f.thumbKey)
-      : idFromKey ? fileUrl(`thumb/${idFromKey}.jpg`)
-      : f.kind === "photo" ? fileUrl(f.key)
-      : "";
-    if (thumbSrc) {
+    const src = it.thumbUrl || (it.kind === "photo" ? it.mediaUrl : "");
+    if (src) {
       const img = document.createElement("img");
-      img.loading = "lazy";
-      img.src = thumbSrc;
-      img.alt = f.name;
+      img.loading = "lazy"; img.alt = it.name; img.src = src;
+      img.dataset.try = "0";
       img.onerror = () => {
-        // превью нет — для фото пробуем оригинал, иначе плитка-заглушка
-        if (f.kind === "photo" && img.src.indexOf("/thumb/") !== -1) { img.src = fileUrl(f.key); return; }
-        img.remove();
-        tile.insertAdjacentHTML("afterbegin", noImg(f));
+        const n = +img.dataset.try; img.dataset.try = n + 1;
+        if (n === 0 && it.thumbRaw) { img.src = it.thumbRaw; return; }
+        if (n <= 1 && it.kind === "photo") { img.src = it.mediaRaw; return; }
+        img.remove(); tile.insertAdjacentHTML("afterbegin", noImg(it));
       };
       tile.appendChild(img);
     } else {
-      tile.insertAdjacentHTML("afterbegin", noImg(f));
+      tile.insertAdjacentHTML("afterbegin", noImg(it));
     }
-    if (f.kind === "video") tile.insertAdjacentHTML("beforeend", `<div class="play">▶</div>`);
-    if (f.uploader) {
+    if (it.kind === "video" || it.kind === "link") {
+      tile.insertAdjacentHTML("beforeend", `<div class="play">${it.kind === "link" ? "↗" : "▶"}</div>`);
+    }
+    if (it.uploader) {
       const cap = document.createElement("div");
-      cap.className = "cap";
-      cap.textContent = f.uploader;
+      cap.className = "cap"; cap.textContent = it.uploader;
       tile.appendChild(cap);
     }
-    tile.addEventListener("click", () => openLightbox(idx));
+    tile.addEventListener("click", () => openItem(idx));
     grid.appendChild(tile);
   }
-  shown += next.length;
-  $("#galMore").style.display = shown < allFiles.length ? "block" : "none";
+  shown += Math.min(PAGE, allItems.length - shown);
+  $("#galMore").style.display = shown < allItems.length ? "block" : "none";
 }
-function noImg(f) {
-  return `<div class="noimg"><div class="ic">${f.kind === "video" ? "🎬" : "🖼"}</div><div>${escapeHtml(f.name)}</div></div>`;
+function noImg(it) {
+  const ic = it.kind === "link" ? "🔗" : it.kind === "video" ? "🎬" : "🖼";
+  return `<div class="noimg"><div class="ic">${ic}</div><div>${escapeHtml(it.name)}</div></div>`;
 }
-function escapeHtml(s) { return String(s).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c])); }
 $("#galMore").addEventListener("click", renderGallery);
 
 /* ---------- lightbox ---------- */
 const lb = $("#lb");
 let lbIdx = -1;
-function openLightbox(idx) {
+function openItem(idx) {
+  const it = allItems[idx];
+  if (!it) return;
+  if (it.external) { window.open(it.url, "_blank", "noopener"); return; }
   lbIdx = idx;
-  const f = allFiles[idx];
-  if (!f) return;
   const holder = $("#lbHolder");
   holder.innerHTML = "";
   let media;
-  if (f.kind === "video") {
+  if (it.kind === "video") {
     media = document.createElement("video");
     media.controls = true; media.autoplay = true; media.playsInline = true;
-    media.src = fileUrl(f.key);
+    media.src = it.mediaUrl;
+    media.onerror = () => { if (media.src !== it.mediaRaw) media.src = it.mediaRaw; };
   } else {
     media = document.createElement("img");
-    media.src = fileUrl(f.key);
+    media.src = it.mediaUrl;
+    media.onerror = () => { if (media.src !== it.mediaRaw) media.src = it.mediaRaw; };
   }
   media.className = "lb-media";
   holder.appendChild(media);
-  $("#lbName").textContent = f.uploader || f.name.replace(/\.[a-z0-9]+$/i, "");
-  $("#lbDl").href = fileUrl(f.key, true);
+  $("#lbName").textContent = it.uploader || it.name.replace(/\.[a-z0-9]+$/i, "");
+  const dl = $("#lbDl");
+  dl.onclick = (e) => { e.preventDefault(); downloadItem(it); };
   lb.classList.add("open");
   document.body.style.overflow = "hidden";
 }
@@ -760,10 +831,12 @@ function closeLightbox() {
   document.body.style.overflow = "";
 }
 function step(d) {
-  let i = lbIdx + d;
-  if (i < 0) i = allFiles.length - 1;
-  if (i >= allFiles.length) i = 0;
-  openLightbox(i);
+  // пропускаем внешние ссылки при листании
+  let i = lbIdx;
+  for (let k = 0; k < allItems.length; k++) {
+    i = (i + d + allItems.length) % allItems.length;
+    if (!allItems[i].external) { openItem(i); return; }
+  }
 }
 $("#lbClose").addEventListener("click", closeLightbox);
 $("#lbPrev").addEventListener("click", () => step(-1));
@@ -776,13 +849,57 @@ document.addEventListener("keydown", (e) => {
   if (e.key === "ArrowRight") step(1);
 });
 
-/* download-all guard */
-$("#dlAll").addEventListener("click", (e) => {
-  if (!allFiles.length) { e.preventDefault(); return; }
-  toast("Собираем архив — скачивание начнётся через несколько секунд");
-});
+/* ---------- скачивание ---------- */
+async function fetchBlob(it) {
+  try { const r = await fetch(it.mediaUrl); if (r.ok) return await r.blob(); } catch {}
+  const r = await fetch(it.mediaRaw); if (!r.ok) throw new Error("не скачать"); return await r.blob();
+}
+async function downloadItem(it) {
+  toast("Скачиваю…");
+  try {
+    const b = await fetchBlob(it);
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(b);
+    a.download = (it.uploader ? it.uploader + " — " : "") + it.name;
+    document.body.appendChild(a); a.click(); a.remove();
+    setTimeout(() => URL.revokeObjectURL(a.href), 8000);
+  } catch { toast("Не получилось скачать"); }
+}
 
-loadGallery(true);
+$("#dlAll").addEventListener("click", zipAll);
+$("#navDl").addEventListener("click", (e) => { e.preventDefault(); $("#gallery").scrollIntoView({ behavior: "smooth" }); setTimeout(zipAll, 400); });
+let zipping = false;
+async function zipAll() {
+  if (zipping) return;
+  const photos = allItems.filter((i) => !i.external);
+  if (!photos.length) { toast("Пока нечего скачивать"); return; }
+  zipping = true;
+  const btn = $("#dlAll");
+  btn.disabled = true;
+  const orig = btn.textContent;
+  try {
+    const zip = new JSZip();
+    let done = 0;
+    for (const it of photos) {
+      btn.textContent = `Собираю архив… ${done + 1}/${photos.length}`;
+      try { zip.file((it.uploader ? it.uploader + " — " : "") + it.name, await fetchBlob(it)); } catch {}
+      done++;
+    }
+    btn.textContent = "Упаковываю…";
+    const blob = await zip.generateAsync({ type: "blob", compression: "STORE" });
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(blob);
+    a.download = "wedding-photos.zip";
+    document.body.appendChild(a); a.click(); a.remove();
+    setTimeout(() => URL.revokeObjectURL(a.href), 15000);
+  } catch (e) {
+    toast("Не удалось собрать архив");
+  } finally {
+    btn.textContent = orig; btn.disabled = false; zipping = false;
+  }
+}
+
+loadGallery();
 </script>
 </body>
 </html>

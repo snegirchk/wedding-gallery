@@ -1,0 +1,43 @@
+name: Deploy to GitHub Pages
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  deploy:
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Подставить токен загрузки и слово админки
+        run: |
+          for f in public/index.html public/admin.html; do
+            sed -i "s|%%MEDIA_TOKEN%%|${MEDIA_TOKEN}|g" "$f"
+            sed -i "s|%%ADMIN_WORD%%|${ADMIN_WORD}|g" "$f"
+          done
+        env:
+          MEDIA_TOKEN: ${{ secrets.MEDIA_TOKEN }}
+          ADMIN_WORD: ${{ secrets.ADMIN_WORD }}
+
+      - uses: actions/configure-pages@v5
+
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: public
+
+      - id: deployment
+        uses: actions/deploy-pages@v4

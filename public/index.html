@@ -448,7 +448,7 @@ async function heicToJpeg(file, lib, quality) {
   });
   ctx.putImageData(imageData, 0, 0);
   try { image.free && image.free(); } catch {}
-  const scale = Math.min(1, 5000 / Math.max(w, h)); // почти без уменьшения — только защита от гигантских панорам
+  const scale = Math.min(1, 8000 / Math.max(w, h)); // почти без уменьшения — только защита от гигантских панорам
   if (scale < 1) {
     const c2 = document.createElement("canvas");
     c2.width = Math.round(w * scale); c2.height = Math.round(h * scale);

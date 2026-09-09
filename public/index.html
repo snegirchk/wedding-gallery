@@ -684,10 +684,11 @@ function plural(n, one, few, many) {
   if (m10 >= 2 && m10 <= 4 && (m100 < 10 || m100 >= 20)) return few;
   return many;
 }
-// высота строки грида + gap → пересчёт grid-row-end по фактической высоте плитки
-function sizeTile(tile) {
+// grid-row-end по высоте плитки. h можно передать явно (расчёт по пропорциям
+// превью — до загрузки картинки, чтобы не было скачков при скролле).
+function sizeTile(tile, h) {
   const gap = window.matchMedia("(max-width:720px)").matches ? 10 : 16;
-  const h = tile.getBoundingClientRect().height;
+  h = h || tile.getBoundingClientRect().height;
   if (!h) return;
   tile.style.gridRowEnd = "span " + Math.max(1, Math.round((h + gap) / (10 + gap)));
 }
@@ -702,6 +703,7 @@ function renderGallery() {
   $("#galEmpty").style.display = allFiles.length ? "none" : "block";
   if (shown === 0) grid.innerHTML = "";
   const next = allFiles.slice(shown, shown + PAGE);
+  const added = [];
   for (const f of next) {
     const idx = allFiles.indexOf(f);
     const tile = document.createElement("div");
@@ -739,7 +741,15 @@ function renderGallery() {
       tile.appendChild(cap);
     }
     tile.addEventListener("click", () => openLightbox(idx));
+    tile._f = f;
     grid.appendChild(tile);
+    added.push(tile);
+  }
+  // один replow: ширина колонки известна — ставим высоту по пропорциям превью
+  const cw = added[0] ? added[0].clientWidth : 0;
+  if (cw) for (const t of added) {
+    const f = t._f;
+    if (f.tw && f.th) sizeTile(t, cw * (f.th / f.tw));
   }
   shown += next.length;
   $("#galMore").style.display = shown < allFiles.length ? "block" : "none";

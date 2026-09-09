@@ -64,13 +64,40 @@ function pipeToFile(req, dest) {
 async function writeMeta(id, m) {
   await fsp.writeFile(path.join(META, id + ".json"), JSON.stringify(m), "utf8");
 }
+
+// размеры JPEG без зависимостей — читаем маркер SOF
+function jpegSize(buf) {
+  if (buf.length < 4 || buf[0] !== 0xff || buf[1] !== 0xd8) return null;
+  let o = 2;
+  while (o + 9 < buf.length) {
+    if (buf[o] !== 0xff) { o++; continue; }
+    const marker = buf[o + 1];
+    if (marker === 0xd8 || marker === 0xd9 || (marker >= 0xd0 && marker <= 0xd7) || marker === 0x01) { o += 2; continue; }
+    const len = buf.readUInt16BE(o + 2);
+    if ((marker >= 0xc0 && marker <= 0xcf) && marker !== 0xc4 && marker !== 0xc8 && marker !== 0xcc) {
+      return { th: buf.readUInt16BE(o + 5), tw: buf.readUInt16BE(o + 7) };
+    }
+    o += 2 + len;
+  }
+  return null;
+}
+function thumbDims(id) {
+  try { return jpegSize(fs.readFileSync(path.join(THUMB, id + ".jpg"))); } catch { return null; }
+}
+
 async function readAllMeta() {
   const files = await fsp.readdir(META).catch(() => []);
   const out = [];
   for (const f of files) {
     if (!f.endsWith(".json")) continue;
     try {
-      out.push(JSON.parse(await fsp.readFile(path.join(META, f), "utf8")));
+      const m = JSON.parse(await fsp.readFile(path.join(META, f), "utf8"));
+      // добираем размеры превью, если их ещё нет
+      if (m.thumbKey && !m.tw) {
+        const d = thumbDims(m.id);
+        if (d) { m.tw = d.tw; m.th = d.th; writeMeta(m.id, m).catch(() => {}); }
+      }
+      out.push(m);
     } catch {}
   }
   return out;
@@ -92,6 +119,13 @@ app.post("/api/upload", async (req, res) => {
 
     if (type === "thumb") {
       await pipeToFile(req, path.join(THUMB, id + ".jpg"));
+      // записать размеры превью в meta, если оно уже есть
+      try {
+        const mp = path.join(META, id + ".json");
+        const m = JSON.parse(fs.readFileSync(mp, "utf8"));
+        const d = thumbDims(id);
+        if (d) { m.tw = d.tw; m.th = d.th; fs.writeFileSync(mp, JSON.stringify(m)); }
+      } catch {}
       return res.json({ ok: true });
     }
 
@@ -220,6 +254,8 @@ app.get("/api/list", async (_req, res) => {
     contentType: m.contentType || "",
     uploadedAt: m.uploadedAt || "",
     thumbKey: m.thumbKey || "",
+    tw: m.tw || 0,
+    th: m.th || 0,
   }));
   res.set("cache-control", "no-store");
   res.json({ count: files.length, totalSize: files.reduce((s, f) => s + (f.size || 0), 0), files });

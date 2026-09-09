@@ -5,19 +5,21 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <meta name="robots" content="noindex, nofollow">
 <title>Модерация · Ксения &amp; Константин</title>
-<link rel="stylesheet" href="/vendor/fonts/fonts.css">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:wght@400;600&family=EB+Garamond&family=Marck+Script&display=swap" rel="stylesheet">
 <style>
-:root{--navy:#1d3a52;--navy-deep:#132330;--cream:#f5eee0;--paper:#fff;--ink:#333f49;--ink-soft:#6c7a84;--line:#dcd1ba;--gold:#b0895a;}
+:root{--navy:#1d3a52;--navy-deep:#15293a;--cream:#f3ecdd;--paper:#fff;--ink:#2a3742;--ink-soft:#5b6a76;--line:#c9bfa8;}
 *{margin:0;padding:0;box-sizing:border-box;}
 body{font-family:'EB Garamond',serif;background:var(--cream);color:var(--ink);padding:2rem 1.2rem;line-height:1.5;}
-h1{font-family:'Cormorant Garamond',serif;font-weight:500;color:var(--navy);font-size:2rem;text-align:center;margin-bottom:.2rem;}
+h1{font-family:'Marck Script',cursive;color:var(--navy);font-size:2.2rem;text-align:center;margin-bottom:.3rem;}
 .sub{text-align:center;color:var(--ink-soft);margin-bottom:1.6rem;font-size:.95rem;}
 .gate{max-width:420px;margin:2rem auto;background:var(--paper);border:1px solid var(--line);padding:1.6rem;text-align:center;}
 .gate input{width:100%;padding:.7rem .9rem;border:1px solid var(--line);font-family:inherit;font-size:1rem;margin:.8rem 0;}
 button{font-family:'Cormorant Garamond',serif;text-transform:uppercase;letter-spacing:.14em;font-weight:600;
   font-size:.8rem;padding:.6rem 1.4rem;background:var(--navy);color:#fff;border:none;cursor:pointer;}
+button.ghost{background:transparent;color:var(--navy);border:1px solid var(--navy);}
 button.danger{background:#a24141;}
-button:disabled{opacity:.5;cursor:default;}
 .stat{text-align:center;color:var(--ink-soft);margin-bottom:1.2rem;font-size:.9rem;}
 .grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(180px,1fr));gap:14px;max-width:1100px;margin:0 auto;}
 .card{background:var(--paper);border:1px solid var(--line);padding:.6rem;display:flex;flex-direction:column;gap:.5rem;}
@@ -48,88 +50,63 @@ button:disabled{opacity:.5;cursor:default;}
 
 <script>
 const $ = (s) => document.querySelector(s);
-const GH = { owner: "snegirchk", repo: "wedding-media", token: "%%MEDIA_TOKEN%%" };
-const ADMIN_WORD = "%%ADMIN_WORD%%";
-const hasToken = () => /^(github_pat_|ghp_|gho_)/.test(GH.token);
-if (!hasToken()) { try { const t = localStorage.getItem("wg_token"); if (t) GH.token = t; } catch {} }
-const API = `https://api.github.com/repos/${GH.owner}/${GH.repo}`;
-const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
-const unb64u = (s) => { try { return decodeURIComponent(escape(atob(String(s).replace(/-/g,"+").replace(/_/g,"/")))); } catch { return ""; } };
-const encPath = (p) => p.split("/").map(encodeURIComponent).join("/");
-const ghHeaders = () => { const h = { "Accept": "application/vnd.github+json", "X-GitHub-Api-Version": "2022-11-28" }; if (hasToken()) h["Authorization"] = "Bearer " + GH.token; return h; };
+let SECRET = "";
 
-// вход: слово в поле или в адресе admin.html#слово
-if (location.hash.length > 1) { $("#secret").value = decodeURIComponent(location.hash.slice(1)); tryEnter(); }
-$("#enter").addEventListener("click", tryEnter);
-$("#secret").addEventListener("keydown", (e) => { if (e.key === "Enter") tryEnter(); });
+const fileUrl = (key, dl) => "/api/file/" + key.split("/").map(encodeURIComponent).join("/") + (dl ? "?dl=1" : "");
+const fmtSize = (n) => n < 1048576 ? (n/1024).toFixed(0)+" КБ" : n < 1073741824 ? (n/1048576).toFixed(1)+" МБ" : (n/1073741824).toFixed(2)+" ГБ";
 
-function tryEnter() {
-  const w = $("#secret").value;
-  if (ADMIN_WORD && ADMIN_WORD.indexOf("%%") === -1 && w !== ADMIN_WORD) {
-    $("#gateMsg").textContent = "Неверное слово"; return;
-  }
+// секрет можно передать в хэше: admin.html#мой-секрет
+if (location.hash.length > 1) {
+  SECRET = decodeURIComponent(location.hash.slice(1));
+  tryEnter();
+}
+$("#enter").addEventListener("click", () => { SECRET = $("#secret").value; tryEnter(); });
+$("#secret").addEventListener("keydown", (e) => { if (e.key === "Enter") { SECRET = $("#secret").value; tryEnter(); } });
+
+async function tryEnter() {
+  if (!SECRET) return;
+  // проверяем секрет «мягким» запросом на удаление несуществующего ключа
+  const r = await fetch("/api/admin/delete", {
+    method: "POST",
+    headers: { "content-type": "application/json", "x-admin-secret": SECRET },
+    body: JSON.stringify({ key: "orig/__auth_check__" }),
+  });
+  if (r.status === 403) { $("#gateMsg").textContent = "Неверное слово"; return; }
   $("#gate").style.display = "none";
   $("#app").style.display = "block";
   load();
 }
 
 async function load() {
-  try {
-    const br = await (await fetch(`${API}/branches/main`, { headers: ghHeaders(), cache: "no-store" })).json();
-    const sha = br.commit.sha;
-    const tree = await (await fetch(`${API}/git/trees/${sha}?recursive=1`, { headers: ghHeaders(), cache: "no-store" })).json();
-    const blobs = (tree.tree || []).filter((x) => x.type === "blob");
-    const thumbs = new Map();
-    const items = [];
-    for (const b of blobs) {
-      let m;
-      if ((m = b.path.match(/^t\/([^/]+)\.jpg$/))) { thumbs.set(m[1], b); continue; }
-      if ((m = b.path.match(/^m\/([^~/]+)~([a-z]+)~([^~]*)~(.+)\.([a-z0-9]+)$/i))) {
-        items.push({ id: m[1], kind: m[2], uploader: unb64u(m[3]), name: unb64u(m[4]) + "." + m[5], path: b.path, sha: b.sha });
-      } else if ((m = b.path.match(/^l\/([^~/]+)~([^~]*)~(.+)\.txt$/))) {
-        items.push({ id: m[1], kind: "link", uploader: unb64u(m[2]), name: unb64u(m[3]), path: b.path, sha: b.sha, url: unb64u(m[3]) });
-      }
-    }
-    items.sort((a, b) => (a.id < b.id ? 1 : -1));
-    $("#stat").textContent = `${items.length} кадров`;
-    const grid = $("#grid");
-    grid.innerHTML = "";
-    for (const it of items) {
-      const t = thumbs.get(it.id);
-      const thumbUrl = t ? `https://cdn.jsdelivr.net/gh/${GH.owner}/${GH.repo}@${sha}/${encPath(t.path)}` : "";
-      const card = document.createElement("div");
-      card.className = "card";
-      card.innerHTML = `
-        <div class="ph">${thumbUrl ? `<img loading="lazy" src="${thumbUrl}">` : `<span class="ico">${it.kind === "video" ? "🎬" : it.kind === "link" ? "🔗" : "🖼"}</span>`}</div>
-        <div class="meta"><b>${esc(it.name)}</b><br>${esc(it.uploader || "без имени")}${it.url ? `<br><a href="${esc(it.url)}" target="_blank" rel="noopener">ссылка</a>` : ""}</div>
-        <button class="danger">Удалить</button>`;
-      card.querySelector("button").addEventListener("click", () => del(it, t, card));
-      grid.appendChild(card);
-    }
-  } catch (e) {
-    $("#stat").textContent = "не удалось загрузить: " + (e.message || e);
+  const r = await fetch("/api/list", { cache: "no-store" });
+  const data = await r.json();
+  const files = data.files || [];
+  $("#stat").textContent = `${files.length} файлов · ${fmtSize(data.totalSize || 0)}`;
+  const grid = $("#grid");
+  grid.innerHTML = "";
+  for (const f of files) {
+    const card = document.createElement("div");
+    card.className = "card";
+    const thumb = f.thumbKey ? fileUrl(f.thumbKey) : (f.kind === "photo" ? fileUrl(f.key) : "");
+    card.innerHTML = `
+      <div class="ph">${thumb ? `<img loading="lazy" src="${thumb}">` : `<span class="ico">${f.kind === "video" ? "🎬" : "🖼"}</span>`}</div>
+      <div class="meta"><b>${esc(f.name)}</b><br>${esc(f.uploader || "без имени")} · ${fmtSize(f.size)}<br>
+        <a href="${fileUrl(f.key)}" target="_blank" rel="noopener">открыть</a></div>
+      <button class="danger">Удалить</button>`;
+    card.querySelector("button").addEventListener("click", async () => {
+      if (!confirm(`Удалить «${f.name}» навсегда?`)) return;
+      const res = await fetch("/api/admin/delete", {
+        method: "POST",
+        headers: { "content-type": "application/json", "x-admin-secret": SECRET },
+        body: JSON.stringify({ key: f.key }),
+      });
+      if (res.ok) { card.remove(); }
+      else alert("Не удалось удалить: HTTP " + res.status);
+    });
+    grid.appendChild(card);
   }
 }
-
-async function del(it, thumb, card) {
-  if (!hasToken()) { alert("Нет токена — модерация недоступна"); return; }
-  if (!confirm(`Удалить «${it.name}» навсегда?`)) return;
-  const btn = card.querySelector("button");
-  btn.disabled = true; btn.textContent = "…";
-  const rm = async (path, sha) => fetch(`${API}/contents/${encPath(path)}`, {
-    method: "DELETE", headers: { ...ghHeaders(), "Content-Type": "application/json" },
-    body: JSON.stringify({ message: "moderation delete", sha, branch: "main" }),
-  });
-  try {
-    const r = await rm(it.path, it.sha);
-    if (!r.ok) throw new Error("HTTP " + r.status);
-    if (thumb) await rm(thumb.path, thumb.sha).catch(() => {});
-    card.remove();
-  } catch (e) {
-    btn.disabled = false; btn.textContent = "Удалить";
-    alert("Не удалось удалить: " + e.message);
-  }
-}
+function esc(s) { return String(s).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c])); }
 </script>
 </body>
 </html>

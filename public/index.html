@@ -448,7 +448,7 @@ async function heicToJpeg(file, lib, quality) {
   });
   ctx.putImageData(imageData, 0, 0);
   try { image.free && image.free(); } catch {}
-  const scale = Math.min(1, 2600 / Math.max(w, h));
+  const scale = Math.min(1, 5000 / Math.max(w, h)); // почти без уменьшения — только защита от гигантских панорам
   if (scale < 1) {
     const c2 = document.createElement("canvas");
     c2.width = Math.round(w * scale); c2.height = Math.round(h * scale);
@@ -463,7 +463,7 @@ async function normalizePhoto(file, ui) {
   try {
     ui.status("конвертируем фото…");
     const lib = await loadHeicLib();
-    const blob = await heicToJpeg(file, lib, 0.86);
+    const blob = await heicToJpeg(file, lib, 0.92);
     if (!blob || blob.size < 1024) throw new Error("empty jpeg");
     const name = (file.name || "photo").replace(/\.(heic|heif)$/i, "") + ".jpg";
     return new File([blob], name, { type: "image/jpeg", lastModified: file.lastModified || Date.now() });

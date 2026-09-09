@@ -1,13 +1,9 @@
-wedding-gallery-shk.ru, www.wedding-gallery-shk.ru {
-	encode gzip
-	reverse_proxy 127.0.0.1:3000 {
-		flush_interval -1
-	}
+{
+	email kseniyazara81@gmail.com
 }
 
-# временный доступ по IP на время настройки (до переключения домена).
-# после переключения можно удалить этот блок.
-:80 {
+wedding-gallery-shk.ru, www.wedding-gallery-shk.ru {
+	encode gzip
 	reverse_proxy 127.0.0.1:3000 {
 		flush_interval -1
 	}

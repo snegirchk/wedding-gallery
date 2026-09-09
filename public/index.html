@@ -151,21 +151,25 @@ nav a:hover::after{right:0;}
 .bar{height:2px;background:var(--sand);margin-top:.5rem;overflow:hidden;}
 .bar > i{display:block;height:100%;width:0;background:var(--gold);transition:width .25s;}
 
-/* gallery — masonry */
+/* gallery — masonry на CSS Grid (без бага перерисовки multi-column) */
 .gallery{background:var(--paper);}
 .masonry{
-  column-count:4;column-gap:16px;
+  display:grid;
+  grid-template-columns:repeat(4, 1fr);
+  grid-auto-rows:10px;
+  gap:16px;
 }
-@media(max-width:1100px){.masonry{column-count:3;}}
-@media(max-width:720px){.masonry{column-count:2;column-gap:10px;}}
+@media(max-width:1100px){.masonry{grid-template-columns:repeat(3, 1fr);}}
+@media(max-width:720px){.masonry{grid-template-columns:repeat(2, 1fr);gap:10px;}}
 .tile{
-  break-inside:avoid;margin:0 0 16px;position:relative;cursor:pointer;
+  grid-row-end:span 16;   /* стартовое; JS уточняет по фактической высоте */
+  align-self:start;
+  position:relative;cursor:pointer;
   border-radius:3px;overflow:hidden;background:var(--cream);
   box-shadow:0 2px 12px rgba(19,35,48,.10);
   transition:transform .32s ease, box-shadow .32s ease;
 }
-@media(max-width:720px){.tile{margin-bottom:10px;}}
-.tile img{width:100%;height:auto;transition:filter .32s ease;}
+.tile img{width:100%;height:auto;display:block;transition:filter .32s ease;}
 .tile:hover{transform:translateY(-4px);box-shadow:0 14px 32px rgba(19,35,48,.20);}
 .tile:hover img{filter:brightness(1.04);}
 .tile .noimg{
@@ -680,6 +684,19 @@ function plural(n, one, few, many) {
   if (m10 >= 2 && m10 <= 4 && (m100 < 10 || m100 >= 20)) return few;
   return many;
 }
+// высота строки грида + gap → пересчёт grid-row-end по фактической высоте плитки
+function sizeTile(tile) {
+  const gap = window.matchMedia("(max-width:720px)").matches ? 10 : 16;
+  const h = tile.getBoundingClientRect().height;
+  if (!h) return;
+  tile.style.gridRowEnd = "span " + Math.max(1, Math.round((h + gap) / (10 + gap)));
+}
+let resizeT;
+window.addEventListener("resize", () => {
+  clearTimeout(resizeT);
+  resizeT = setTimeout(() => document.querySelectorAll("#grid .tile").forEach(sizeTile), 200);
+}, { passive: true });
+
 function renderGallery() {
   const grid = $("#grid");
   $("#galEmpty").style.display = allFiles.length ? "none" : "block";
@@ -698,17 +715,21 @@ function renderGallery() {
     if (thumbSrc) {
       const img = document.createElement("img");
       img.loading = "lazy";
+      img.decoding = "async";
       img.src = thumbSrc;
       img.alt = f.name;
+      img.onload = () => sizeTile(tile);
       img.onerror = () => {
         // превью нет — для фото пробуем оригинал, иначе плитка-заглушка
         if (f.kind === "photo" && img.src.indexOf("/thumb/") !== -1) { img.src = fileUrl(f.key); return; }
         img.remove();
         tile.insertAdjacentHTML("afterbegin", noImg(f));
+        sizeTile(tile);
       };
       tile.appendChild(img);
     } else {
       tile.insertAdjacentHTML("afterbegin", noImg(f));
+      requestAnimationFrame(() => sizeTile(tile));
     }
     if (f.kind === "video") tile.insertAdjacentHTML("beforeend", `<div class="play">▶</div>`);
     if (f.uploader) {
